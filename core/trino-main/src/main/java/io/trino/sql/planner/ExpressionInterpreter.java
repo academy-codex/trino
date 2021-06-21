@@ -292,7 +292,7 @@ public class ExpressionInterpreter
             try {
                 return process(expression, context);
             }
-            catch (RuntimeException e) {
+            catch (TrinoException e) {
                 if (optimize) {
                     // Certain operations like 0 / 0 or likeExpression may throw exceptions.
                     // When optimizing, do not throw the exception, but delay it until the expression is actually executed.
@@ -300,10 +300,8 @@ public class ExpressionInterpreter
                     // expression from the plan.
                     return expression;
                 }
-                else {
-                    // Do not suppress exceptions during expression execution.
-                    throw e;
-                }
+                // Do not suppress exceptions during expression execution.
+                throw e;
             }
         }
 
@@ -456,12 +454,10 @@ public class ExpressionInterpreter
                         toExpression(trueValue, type(node.getTrueValue())),
                         (falseValue == null) ? null : toExpression(falseValue, type(node.getFalseValue().get())));
             }
-            else if (Boolean.TRUE.equals(condition)) {
+            if (Boolean.TRUE.equals(condition)) {
                 return processWithExceptionHandling(node.getTrueValue(), context);
             }
-            else {
-                return processWithExceptionHandling(node.getFalseValue().orElse(null), context);
-            }
+            return processWithExceptionHandling(node.getFalseValue().orElse(null), context);
         }
 
         @Override
@@ -614,11 +610,7 @@ public class ExpressionInterpreter
                 return set.contains(value);
             }
 
-            boolean hasUnresolvedValue = false;
-            if (value instanceof Expression) {
-                hasUnresolvedValue = true;
-            }
-
+            boolean hasUnresolvedValue = value instanceof Expression;
             boolean hasNullValue = false;
             boolean found = false;
             List<Object> values = new ArrayList<>(valueList.getValues().size());
@@ -928,9 +920,7 @@ public class ExpressionInterpreter
             if (equal) {
                 return null;
             }
-            else {
-                return first;
-            }
+            return first;
         }
 
         @Override
@@ -1143,15 +1133,18 @@ public class ExpressionInterpreter
                 Slice unescapedPattern = unescapeLiteralLikePattern((Slice) pattern, Optional.ofNullable((Slice) escape));
                 Type valueType = type(node.getValue());
                 Type patternType = createVarcharType(unescapedPattern.length());
-                Optional<Type> commonSuperType = typeCoercion.getCommonSuperType(valueType, patternType);
-                checkArgument(commonSuperType.isPresent(), "Missing super type when optimizing %s", node);
+                Type superType = typeCoercion.getCommonSuperType(valueType, patternType)
+                        .orElseThrow(() -> new IllegalArgumentException("Missing super type when optimizing " + node));
                 Expression valueExpression = toExpression(value, valueType);
-                Expression patternExpression = toExpression(unescapedPattern, patternType);
-                Type superType = commonSuperType.get();
                 if (!valueType.equals(superType)) {
                     valueExpression = new Cast(valueExpression, toSqlType(superType), false, typeCoercion.isTypeOnlyCoercion(valueType, superType));
                 }
-                if (!patternType.equals(superType)) {
+                Expression patternExpression;
+                if (superType instanceof VarcharType) {
+                    patternExpression = toExpression(unescapedPattern, superType);
+                }
+                else {
+                    patternExpression = toExpression(unescapedPattern, patternType);
                     patternExpression = new Cast(patternExpression, toSqlType(superType), false, typeCoercion.isTypeOnlyCoercion(patternType, superType));
                 }
                 return new ComparisonExpression(ComparisonExpression.Operator.EQUAL, valueExpression, patternExpression);
@@ -1297,15 +1290,13 @@ public class ExpressionInterpreter
             if (hasUnresolvedValue(values)) {
                 return new Row(toExpressions(values, parameterTypes));
             }
-            else {
-                BlockBuilder blockBuilder = new RowBlockBuilder(parameterTypes, null, 1);
-                BlockBuilder singleRowBlockWriter = blockBuilder.beginBlockEntry();
-                for (int i = 0; i < cardinality; ++i) {
-                    writeNativeValue(parameterTypes.get(i), singleRowBlockWriter, values.get(i));
-                }
-                blockBuilder.closeEntry();
-                return rowType.getObject(blockBuilder, 0);
+            BlockBuilder blockBuilder = new RowBlockBuilder(parameterTypes, null, 1);
+            BlockBuilder singleRowBlockWriter = blockBuilder.beginBlockEntry();
+            for (int i = 0; i < cardinality; ++i) {
+                writeNativeValue(parameterTypes.get(i), singleRowBlockWriter, values.get(i));
             }
+            blockBuilder.closeEntry();
+            return rowType.getObject(blockBuilder, 0);
         }
 
         @Override
