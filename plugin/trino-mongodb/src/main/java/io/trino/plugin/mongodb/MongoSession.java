@@ -458,10 +458,8 @@ public class MongoSession
             else {
                 Document metadata = new Document(TABLE_NAME_KEY, tableName);
                 metadata.append(FIELDS_KEY, guessTableFields(schemaName, tableName));
-                if (!indexExists(schema)) {
-                    schema.createIndex(new Document(TABLE_NAME_KEY, 1), new IndexOptions().unique(true));
-                }
 
+                schema.createIndex(new Document(TABLE_NAME_KEY, 1), new IndexOptions().unique(true));
                 schema.insertOne(metadata);
 
                 return metadata;
@@ -481,7 +479,8 @@ public class MongoSession
         return false;
     }
 
-    private boolean indexExists(MongoCollection<Document> schemaCollection) {
+    private boolean indexExists(MongoCollection<Document> schemaCollection)
+    {
         return MongoIndex.parse(schemaCollection.listIndexes())
                 .stream()
                 .anyMatch(index -> index.getKeys().size() == 1 && TABLE_NAME_KEY.equals(index.getKeys().get(0).getName()));
@@ -523,7 +522,10 @@ public class MongoSession
         metadata.append(FIELDS_KEY, fields);
 
         MongoCollection<Document> schema = db.getCollection(schemaCollection);
-        schema.createIndex(new Document(TABLE_NAME_KEY, 1), new IndexOptions().unique(true));
+        if (!indexExists(schema)) {
+            schema.createIndex(new Document(TABLE_NAME_KEY, 1), new IndexOptions().unique(true));
+        }
+
         schema.insertOne(metadata);
     }
 
