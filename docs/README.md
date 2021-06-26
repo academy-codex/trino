@@ -14,6 +14,7 @@ The `docs` module contains the reference documentation for Trino.
 
 ## Writing and contributing
 
+
 We welcome any contributions to the documentation. Contributions must [follow
 the same process as code contributions](https://trino.io/development/) and
 can be part of your code contributions or separate documentation improvements.
